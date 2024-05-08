@@ -10,6 +10,8 @@ HOME = f'/cpfs01/user/{os.getenv("USER")}'
 def get_workspace_id(partition: str, config_path: str, dlc_path: str) -> str:
     """Extract the workspace ID for the specified partition using dlc
     command."""
+    config_path = os.path.expanduser(config_path)
+    dlc_path = os.path.expanduser(dlc_path)
     try:
         result = subprocess.run([dlc_path, 'get', 'workspace', '-c', config_path],
                                 capture_output=True,
