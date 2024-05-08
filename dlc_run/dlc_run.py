@@ -7,11 +7,13 @@ from pathlib import Path
 HOME = f'/cpfs01/user/{os.getenv("USER")}'
 
 
-def get_workspace_id(partition: str, config_path: str) -> str:
+def get_workspace_id(partition: str, config_path: str, dlc_path: str) -> str:
     """Extract the workspace ID for the specified partition using dlc
     command."""
+    config_path = os.path.expanduser(config_path)
+    dlc_path = os.path.expanduser(dlc_path)
     try:
-        result = subprocess.run(['dlc', 'get', 'workspace', '-c', config_path],
+        result = subprocess.run([dlc_path, 'get', 'workspace', '-c', config_path],
                                 capture_output=True,
                                 text=True,
                                 check=True)
@@ -141,7 +143,7 @@ def main():
         help='Command line to execute, similar to typing in the shell.')
     args = parser.parse_args()
 
-    workspace_id = get_workspace_id(args.partition, args.config)
+    workspace_id = get_workspace_id(args.partition, args.config, args.dlc_path)
     if not workspace_id:
         print('Failed to retrieve workspace ID.')
         exit(1)
