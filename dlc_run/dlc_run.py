@@ -13,10 +13,11 @@ def get_workspace_id(partition: str, config_path: str, dlc_path: str) -> str:
     config_path = os.path.expanduser(config_path)
     dlc_path = os.path.expanduser(dlc_path)
     try:
-        result = subprocess.run([dlc_path, 'get', 'workspace', '-c', config_path],
-                                capture_output=True,
-                                text=True,
-                                check=True)
+        result = subprocess.run(
+            [dlc_path, 'get', 'workspace', '-c', config_path],
+            capture_output=True,
+            text=True,
+            check=True)
         regex = rf'\|\s*{re.escape(partition)}\s*\|\s*([\w]+)\s*\|'
         match = re.search(regex, result.stdout, re.MULTILINE)
         if match:
@@ -61,7 +62,7 @@ def parse_env_vars(env_vars):
     comma-separated and multiple inputs."""
     env_dict = {}
     for item in env_vars:
-        pairs = item.split(',')
+        pairs = item.split(';')
         for pair in pairs:
             if '=' in pair:
                 key, value = pair.split('=', 1)
@@ -99,11 +100,11 @@ def main():
     parser.add_argument('--worker-gpu',
                         type=int,
                         default=8,
-                        help='Total GPU count for the job')
+                        help='GPU count for single worker')
     parser.add_argument('--worker-cpu',
                         type=int,
                         default=120,
-                        help='Total CPU cores for the job')
+                        help='CPU count for single worker')
     parser.add_argument(
         '--worker-image',
         type=str,
@@ -112,7 +113,7 @@ def main():
     parser.add_argument('--worker-memory',
                         type=int,
                         default=800,
-                        help='Total memory in GB for the job')
+                        help='Memory in GB for single worker')
     parser.add_argument('--interactive',
                         action='store_true',
                         help='Whether to print out job status or not.')
@@ -133,7 +134,7 @@ def main():
                         action='append',
                         default=[],
                         help=('Additional environment variables, '
-                              "either `--env 'KEY1=VALUE1,KEY2=VALUE2'` or "
+                              "either `--env 'KEY1=VALUE1;KEY2=VALUE2'` or "
                               '`--env KEY1=VALUE1 --env KEY2=VALUE2`'))
 
     parser.add_argument(
@@ -158,7 +159,7 @@ def main():
     else:
         proxy_cmd = 'unset http_proxy;unset https_proxy'
     env_dict = parse_env_vars(args.env)
-    env_var_cmds = '; '.join(
+    env_var_cmds = ' && '.join(
         [f'export {key}={value}' for key, value in env_dict.items()])
 
     env_cmds = [
