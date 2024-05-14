@@ -4,28 +4,18 @@ import re
 import subprocess
 from pathlib import Path
 
-HOME = f'/cpfs01/user/{os.getenv("USER")}'
-
-
-def get_workspace_id(partition: str, config_path: str, dlc_path: str) -> str:
-    """Extract the workspace ID for the specified partition using dlc
-    command."""
-    config_path = os.path.expanduser(config_path)
-    dlc_path = os.path.expanduser(dlc_path)
-    try:
-        result = subprocess.run(
-            [dlc_path, 'get', 'workspace', '-c', config_path],
-            capture_output=True,
-            text=True,
-            check=True)
-        regex = rf'\|\s*{re.escape(partition)}\s*\|\s*([\w]+)\s*\|'
-        match = re.search(regex, result.stdout, re.MULTILINE)
-        if match:
-            return match.group(1).strip()
-    except subprocess.SubprocessError as e:
-        print(f'Error retrieving workspace ID: {e}')
-        return None
-    return None
+user_names = os.listdir('/cpfs01/user/')
+if len(user_names) == 1:
+    HOME = f'/cpfs01/user/{user_names[0]}'
+elif len(user_names) == 2:
+    if 'liukuikun' in user_names[0]:
+        HOME = f'/cpfs01/user/{user_names[1]}'
+    elif 'liukuikun' in user_names[1]:
+        HOME = f'/cpfs01/user/{user_names[0]}'
+    else:
+        HOME = None
+else:
+    HOME = None
 
 
 def get_conda_envs():
@@ -73,14 +63,21 @@ def parse_env_vars(env_vars):
 def main():
     parser = argparse.ArgumentParser(
         description='Run a job with the specified configuration using DLC.')
+    parser.add_argument('--data-sources', help='User ID')
+    parser.add_argument('--priority', type=int, default=1, help='priority')
+    parser.add_argument('--workspace-id',
+                        type=int,
+                        default=5366,
+                        help='Workspace ID')
+    parser.add_argument('--resource-id',
+                        type=str,
+                        default='quota12hhgcm8cia',
+                        help='Quota ID')
     parser.add_argument('--job-name',
                         '-J',
                         default='dlc_job',
                         help='Name of the job')
-    parser.add_argument('--partition',
-                        '-p',
-                        default='llmit',
-                        help='Partition for DLC job')
+
     parser.add_argument('--config',
                         '-c',
                         default=os.path.expanduser(f'{HOME}/.dlc/config'),
@@ -90,9 +87,13 @@ def main():
                         help='DLC installation path')
     parser.add_argument('--kind',
                         type=str,
-                        choices=['TFJob', 'BatchJob', 'PyTorchJob'],
-                        default='PyTorchJob',
+                        choices=[
+                            'elasticbatchjob', 'flinkbatchjob', 'pytorchjob',
+                            'mpijob', 'tfjob', 'xgboostjob'
+                        ],
+                        default='pytorchjob',
                         help='Kind of job')
+
     parser.add_argument('--worker-count',
                         type=int,
                         default=1,
@@ -108,7 +109,8 @@ def main():
     parser.add_argument(
         '--worker-image',
         type=str,
-        default='master0:5000/eflops/yehaochen:tears-and-blood1',
+        default=
+        'pjlab-wulan-acr-registry-vpc.cn-wulanchabu.cr.aliyuncs.com/pjlab-eflops/liukuikun:cu121-ubuntu22-lkk-0513-rc6',
         help='Docker image for the worker')
     parser.add_argument('--worker-memory',
                         type=int,
@@ -117,10 +119,11 @@ def main():
     parser.add_argument('--interactive',
                         action='store_true',
                         help='Whether to print out job status or not.')
+    parser.add_argument('--home', default=HOME, help='The path for HOME')
     parser.add_argument('--shell',
                         type=str,
                         choices=['bash', 'zsh', 'none'],
-                        default='none',
+                        default='zsh',
                         help='Shell to use for command execution')
     parser.add_argument('--conda-env',
                         type=validate_conda_env,
@@ -144,12 +147,8 @@ def main():
         help='Command line to execute, similar to typing in the shell.')
     args = parser.parse_args()
 
-    workspace_id = get_workspace_id(args.partition, args.config, args.dlc_path)
-    if not workspace_id:
-        print('Failed to retrieve workspace ID.')
-        exit(1)
-
-    home_cmd = f'export HOME={HOME}'
+    assert args.home is not None, 'HOME is not set.'
+    home_cmd = f'export HOME={args.home}'
     shell_cmd = (f'{args.shell} -c "source ~/.{args.shell}rc'
                  if args.shell != 'none' else '')
     conda_cmd = f'conda activate {args.conda_env}' if args.conda_env else ''
@@ -169,21 +168,24 @@ def main():
     ]
     full_env_cmd = ' && '.join(env_cmds)
 
-    full_command = (
-        f'{full_env_cmd} && cd {os.getcwd()} && '
-        f"{' '.join(args.task_cmds).strip()}") + '"' if shell_cmd else ''
+    full_command = (f'{full_env_cmd} && cd {os.getcwd()} && '
+                    f"{' '.join(args.task_cmds).strip()}")
+    if shell_cmd:
+        full_command += '"'
 
     dlc_command = [
-        f'{args.dlc_path} create job',
+        f'{args.dlc_path} submit {args.kind}',
         f'--config {args.config}',
         f'--name {args.job_name}',
-        f'--kind {args.kind}',
-        f'--worker_count {args.worker_count}',
+        f'--priority {args.priority}',
+        f'--resource_id {args.resource_id}',
+        f'--data_sources {args.data_sources}',
+        f'--workspace_id {args.workspace_id}',
+        f'--workers {args.worker_count}',
         f'--worker_cpu {args.worker_cpu}',
         f'--worker_gpu {args.worker_gpu}',
-        f'--worker_memory {args.worker_memory}',
+        f'--worker_memory {args.worker_memory}Gi',
         f'--worker_image {args.worker_image}',
-        f'--workspace_id {workspace_id}',
         f'--worker_shared_memory {args.worker_memory // 2}',
         '--interactive' if args.interactive else '',
         f"--command '{full_command}'",
