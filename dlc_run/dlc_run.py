@@ -18,13 +18,15 @@ else:
     HOME = None
 
 
-def get_conda_envs():
+def get_conda_envs(shell='zsh'):
     """Function to retrieve all conda environments."""
     try:
-        result = subprocess.run(['conda', 'env', 'list'],
+        cmds = f'{shell} -i -c  "conda env list"'
+        result = subprocess.run(cmds,
                                 capture_output=True,
                                 text=True,
-                                check=True)
+                                check=True,
+                                shell=True)
         envs = []
         for line in result.stdout.split('\n'):
             if line and not line.startswith('#'):
@@ -36,10 +38,10 @@ def get_conda_envs():
         return []
 
 
-def validate_conda_env(value):
+def validate_conda_env(value, shell='zsh'):
     """Validate the conda environment name against the list of available
     environments or check if it's a valid path."""
-    envs = get_conda_envs()
+    envs = get_conda_envs(shell)
     if value in envs or Path(value).exists() or not value:
         return value
     raise argparse.ArgumentTypeError(
@@ -126,12 +128,9 @@ def main():
                         default='zsh',
                         help='Shell to use for command execution')
     parser.add_argument('--conda-env',
-                        type=validate_conda_env,
+                        type=str,
                         default='',
                         help='Conda environment to activate')
-    parser.add_argument('--proxy',
-                        action='store_true',
-                        help='Toggle proxy settings')
     parser.add_argument('--env',
                         '--environs',
                         action='append',
@@ -146,25 +145,22 @@ def main():
         nargs=argparse.REMAINDER,
         help='Command line to execute, similar to typing in the shell.')
     args = parser.parse_args()
+    try:
+        args.conda_env = validate_conda_env(args.conda_env, args.shell)
+    except argparse.ArgumentTypeError as e:
+        parser.error(e)
 
     assert args.home is not None, 'HOME is not set.'
     home_cmd = f'export HOME={args.home}'
     shell_cmd = (f'{args.shell} -c "source ~/.{args.shell}rc'
                  if args.shell != 'none' else '')
     conda_cmd = f'conda activate {args.conda_env}' if args.conda_env else ''
-    if args.proxy:
-        proxy_cmd = ('export http_proxy=http://58.34.83.134:31128 && '
-                     'export https_proxy=http://58.34.83.134:31128')
-    else:
-        proxy_cmd = 'unset http_proxy;unset https_proxy'
     env_dict = parse_env_vars(args.env)
     env_var_cmds = ' && '.join(
         [f'export {key}={value}' for key, value in env_dict.items()])
 
     env_cmds = [
-        cmd
-        for cmd in [home_cmd, proxy_cmd, env_var_cmds, shell_cmd, conda_cmd]
-        if cmd
+        cmd for cmd in [home_cmd, env_var_cmds, shell_cmd, conda_cmd] if cmd
     ]
     full_env_cmd = ' && '.join(env_cmds)
 
@@ -186,7 +182,7 @@ def main():
         f'--worker_gpu {args.worker_gpu}',
         f'--worker_memory {args.worker_memory}Gi',
         f'--worker_image {args.worker_image}',
-        f'--worker_shared_memory {args.worker_memory // 2}',
+        f'--worker_shared_memory {args.worker_memory // 2}Gi',
         '--interactive' if args.interactive else '',
         f"--command '{full_command}'",
     ]
